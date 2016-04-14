@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>Movie Reviews: Sentiment Analysis </title>
+
+		<script src="./negative.js"></script>
+		<script src="./positive.js"></script>
+		<script src="./PorterStemmer1980.min.js"></script>
+		<script src="./bayes.js"></script>
+
+		<style>
+body, textarea {
+    font-family: Helvetica, Arial, sans-serif;
+    width: 400px;
+    margin: 10px auto;
+    font-size: 13px;
+	
+}
+.progress-wrapper {
+    border: 2px solid #000000;
+    height: 15px;
+    width: 100%;
+}
+.progress {
+    background: #3366ff;
+    height: 100%;
+    width: 0%;
+}
+
+textarea, button {
+    border: 2px solid #000000;
+}
+
+textarea {
+    padding: 10px;
+    resize: none;
+    -moz-box-sizing: border-box;
+    box-sizing: border-box;
+    margin-top: 0;
+}
+
+button {
+    background-color: #4CAF50; /* Green */
+    border: none;
+    color: white;
+    padding: 15px 32px;
+    text-align: center;
+    text-decoration: none;
+    display: inline-block;
+    font-size: 16px;
+    cursor: pointer;
+}
+
+		</style>
+		<script>
+
+
+//global variables 
+var incorrectNegs = [];
+var incorrectPos = [];
+
+// negation terms to flag nearby tokens
+var negations = new RegExp("^(never|no|nothing|nowhere|noone|none|not|havent|hasnt|hadnt|cant|couldnt|shouldnt|wont|wouldnt|dont|doesnt|didnt|isnt|arent|aint)$");
+
+//splitting 80% of data for training and rest 20% will be used for testing
+var length = negatives.length;
+var split = Math.floor(0.80 * length);
+
+Bayes.debug = false;
+
+// Close-proximity negation-marked unigram 
+Bayes.tokenizer = function (text) {
+    // Standard unigram tokenizer: lowercase, strip special characters, split by whitespace
+    text = Bayes.unigramTokenizer(text);
+    // Step through our array of tokens
+    for (var i = 0, len = text.length; i < len; i++) {
+        //add an exclamation point to the word preceding and following it in case of a negation word
+        if (text[i].match(negations)) {
+            if (typeof text[i + 1] !== 'undefined') text[i + 1] = "!" + text[i + 1];
+            if (typeof text[i - 1] !== 'undefined') text[i - 1] = "!" + text[i - 1];
+        }
+    }
+    // Porter Stemmer for reducing entropy a bit
+    text = text.map(function (t) { return stemmer(t); });
+    return text;
+};
+
+// Set the storage engine to in-memory
+Bayes.storage = Storage;
+
+// Runs a single training and testing experiment.
+function go() {
+
+    var correct = 0;
+    var incorrect = 0;
+    var skipped = 0;
+    var trainingBar = document.getElementById("trainingProgressBar");
+    var trainingVal = document.getElementById("trainingProgressValue");
+    var trainingPct = 0;
+    var resultsBar = document.getElementById("testResultsBar");
+    var resultsVal = document.getElementById("testResultsValue");
+    var resultsPct = 0.0;
+    
+    Bayes.storage._data = {};
+
+    
+    negatives.sort(function () { return Math.random() - 0.5; });
+    positives.sort(function () { return Math.random() - 0.5; });
+
+    // Training data    
+    for (var i = 0; i < split; i++) {
+        Bayes.train(negatives[i], 'negative');
+        Bayes.train(positives[i], 'positive');
+    }
+    
+    // Cleaning up the progress bar for the final state.
+    trainingPct = 100;
+    trainingVal.innerHTML = trainingPct;
+    trainingBar.style.width = trainingPct + '%';
+
+    // Test remaining data
+    for (var i = split; i < length; i++) {
+        var negResult = Bayes.extractWinner(Bayes.guess(negatives[i]));
+        var posResult = Bayes.extractWinner(Bayes.guess(positives[i]));
+
+        // Probability less than 75%? Skip it
+        if (negResult.score < 0.70) skipped++;
+        else if (negResult.label === 'negative') correct++;
+        else {
+            incorrect++;
+            incorrectNegs.push(negatives[i]);
+        }
+
+        // Repeat for the corresponding positive data point
+        if (posResult.score < 0.70) skipped++;
+        else if (posResult.label === 'positive') correct++;
+        else {
+            incorrect++;
+            incorrectPos.push(positives[i]);
+        }
+    }
+
+    // Show the accuracy for the run.
+    resultsPct = Math.round(10000 * correct / (correct + incorrect)) / 100;
+    resultsBar.style.width = Math.round(resultsPct) + '%';
+    resultsVal.innerHTML = resultsPct;
+    return resultsPct;
+}
+
+window.onload = function() {
+	document.getElementById("testButton").addEventListener('click', function() {
+		var text = document.getElementById("testBox").value;
+		var result = Bayes.extractWinner(Bayes.guess(text));
+		document.getElementById("testBox").value = '';
+		document.getElementById("testResultLabel").innerHTML = result.label;
+		document.getElementById("testResultProbability").innerHTML = Math.round(100*result.score);
+		document.getElementById("testResult").style.display = 'block';
+	});
+
+	setTimeout(go, 500);
+};
+
+</script>
+	</head>
+	<body>
+		<p><font size="7" color="blue">Movie Reviews</font></p>
+		<p>Progress of Training: <span id="trainingProgressValue">0</span>%</p>
+		<div class="progress-wrapper">
+			<div class="progress" id="trainingProgressBar"></div>
+		</div>
+
+		<p>Results: <span id="testResultsValue">0</span>% accuracy</p>
+		<div class="progress-wrapper">
+			<div class="progress" id="testResultsBar"></div>
+		</div>
+
+		<p>Write your review here and test out the sentiment:</p>
+		<textarea id="testBox" placeholder="eg: In every way, this quietly majestic film should be considered a triumph."></textarea>
+		<button id="testButton">Guess the Sentiment</button>
+		<p id="testResult" style="display:none;">Guess: <span id="testResultLabel"></span> (<span id="testResultProbability"></span>% probability)</p>
+	</body>
+</html>
